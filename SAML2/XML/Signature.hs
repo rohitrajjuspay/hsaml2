@@ -51,6 +51,8 @@ import SAML2.XML.Canonical
 import qualified Text.XML.HXT.Arrow.Pickle.Xml.Invertible as XP
 import SAML2.XML.Signature.Types
 import System.IO (hPutStrLn, stderr)
+import qualified Data.X509 as X509
+import Crypto.Number.Basic (numBytes)
 
 isDSElem :: HXT.ArrowXml a => String -> a HXT.XmlTree HXT.XmlTree
 isDSElem n = HXT.isElem HXT.>>> HXT.hasQName (mkNName ns n)
@@ -185,6 +187,22 @@ generateSignature sk si = do
     , signatureObject = []
     }
 
+publicKeyValues :: KeyValue -> PublicKeys
+publicKeyValues DSAKeyValue{ dsaKeyValuePQ = Just (p, q), dsaKeyValueG = Just g, dsaKeyValueY = y } = mempty
+  { publicKeyDSA = Just $ DSA.PublicKey
+    { DSA.public_params = DSA.Params
+      { DSA.params_p = p
+      , DSA.params_q = q
+      , DSA.params_g = g
+      }
+    , DSA.public_y = y
+    }
+  }
+publicKeyValues RSAKeyValue{ rsaKeyValueModulus = n, rsaKeyValueExponent = e } = mempty
+  { publicKeyRSA = Just $ RSA.PublicKey (numBytes n) n e
+  }
+publicKeyValues _ = mempty
+
 -- deprecated!  use 'verifySignature' instead.  this is left here so it can be used for testing only.
 -- Exception in IO:  something is syntactically wrong with the input
 -- Nothing:          no matching key/alg pairs found
@@ -208,8 +226,10 @@ verifySignature pks xid doc = do
   hPutStrLn stderr ("signatureMethodAlgorithm $ signedInfoSignatureMethod si: " ++ show (signatureMethodAlgorithm $ signedInfoSignatureMethod si))
   hPutStrLn stderr ("signatureValue $ signatureSignatureValue s: " ++ show (signatureValue $ signatureSignatureValue s))
   hPutStrLn stderr ("six: " ++ show (six))
+  let keys = pks <> foldMap (foldMap keyinfo . keyInfoElements) (signatureKeyInfo s)
+  hPutStrLn stderr ("keys: " ++ show (keys))
   let verified :: Maybe Bool
-      verified = verifyBytes pks (signatureMethodAlgorithm $ signedInfoSignatureMethod si) (signatureValue $ signatureSignatureValue s) six
+      verified = verifyBytes keys (signatureMethodAlgorithm $ signedInfoSignatureMethod si) (signatureValue $ signatureSignatureValue s) six
       valid :: Bool
       valid = elem (Right xid) rl && all isRight rl
   hPutStrLn stderr ("valid: " ++ show (valid))
@@ -217,6 +237,14 @@ verifySignature pks xid doc = do
   return $ (valid &&) <$> verified
   where
   child n = HXT.runLA $ HXT.getChildren HXT.>>> isDSElem n HXT.>>> HXT.cleanupNamespaces HXT.collectPrefixUriPairs
+  keyinfo (KeyInfoKeyValue kv) = publicKeyValues kv
+  keyinfo (X509Data l) = foldMap keyx509d l
+  keyinfo _ = mempty
+  keyx509d (X509Certificate sc) = keyx509p $ X509.certPubKey $ X509.getCertificate sc
+  keyx509d _ = mempty
+  keyx509p (X509.PubKeyRSA r) = mempty{ publicKeyRSA = Just r }
+  keyx509p (X509.PubKeyDSA d) = mempty{ publicKeyDSA = Just d }
+  keyx509p _ = mempty
   xpathsel t = "/*[local-name()='" ++ t ++ "' and namespace-uri()='" ++ namespaceURIString ns ++ "']"
   xpathbase = "/*" ++ xpathsel "Signature" ++ xpathsel "SignedInfo" ++ "//"
   xpath = xpathbase ++ ". | " ++ xpathbase ++ "@* | " ++ xpathbase ++ "namespace::*"
