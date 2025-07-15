@@ -56,7 +56,7 @@ verifySAMLProtocol b = do
   hPutStrLn stderr ("verifySAMLProtocol m: " ++ show (m))
   v <- DS.verifySignatureUnenvelopedSigs mempty (DS.signedID m) x
   case v of
-    Left msg -> fail $ "verifySAMLProtocol::: invalid or missing signature: " ++ show msg
+    Left msg -> fail $ "verifySAMLProtocol: invalid or missing signature: " ++ show msg
     Right () -> return m
 
 -- | A variant of 'verifySAMLProtocol' that is more symmetric to 'signSAMLProtocol'.  The reason it
