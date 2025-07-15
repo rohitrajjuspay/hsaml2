@@ -19,6 +19,7 @@ import SAML2.XML
 import qualified SAML2.XML.Canonical as C14N
 import qualified SAML2.XML.Signature as DS
 import qualified SAML2.Core.Protocols as SAMLP
+import System.IO (hPutStrLn, stderr)
 
 signSAMLProtocol :: SAMLP.SAMLProtocol a => DS.SigningKey -> a -> IO a
 signSAMLProtocol sk m = do
@@ -51,9 +52,11 @@ verifySAMLProtocol :: SAMLP.SAMLProtocol a => BSL.ByteString -> IO a
 verifySAMLProtocol b = do
   x <- maybe (fail "invalid XML") return $ xmlToDoc b
   m <- either fail return $ docToSAML x
+  hPutStrLn stderr ("verifySAMLProtocol x: " ++ show (x))
+  hPutStrLn stderr ("verifySAMLProtocol m: " ++ show (m))
   v <- DS.verifySignatureUnenvelopedSigs mempty (DS.signedID m) x
   case v of
-    Left msg -> fail $ "verifySAMLProtocol: invalid or missing signature: " ++ show msg
+    Left msg -> fail $ "verifySAMLProtocol::: invalid or missing signature: " ++ show msg
     Right () -> return m
 
 -- | A variant of 'verifySAMLProtocol' that is more symmetric to 'signSAMLProtocol'.  The reason it

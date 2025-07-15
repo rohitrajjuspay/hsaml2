@@ -50,6 +50,7 @@ import SAML2.XML
 import SAML2.XML.Canonical
 import qualified Text.XML.HXT.Arrow.Pickle.Xml.Invertible as XP
 import SAML2.XML.Signature.Types
+import System.IO (hPutStrLn, stderr)
 
 isDSElem :: HXT.ArrowXml a => String -> a HXT.XmlTree HXT.XmlTree
 isDSElem n = HXT.isElem HXT.>>> HXT.hasQName (mkNName ns n)
@@ -191,6 +192,9 @@ generateSignature sk si = do
 -- Just True:        everything is ok!
 verifySignature :: PublicKeys -> String -> HXT.XmlTree -> IO (Maybe Bool)
 verifySignature pks xid doc = do
+  hPutStrLn stderr ("pks: " ++ show (pks))
+  hPutStrLn stderr ("xid: " ++ show (xid))
+  hPutStrLn stderr ("doc: " ++ show (doc))
   let namespaces = DOM.toNsEnv $ HXT.runLA HXT.collectNamespaceDecl doc
   x <- case HXT.runLA (getID xid HXT.>>> HXT.attachNsEnv namespaces) doc of
     [x] -> return x
@@ -201,10 +205,15 @@ verifySignature pks xid doc = do
   s@Signature{ signatureSignedInfo = si } <- either fail return $ docToSAML sx
   six <- applyCanonicalization (signedInfoCanonicalizationMethod si) (Just xpath) $ DOM.mkRoot [] [x]
   rl <- mapM (`verifyReference` x) (signedInfoReference si)
+  hPutStrLn stderr ("signatureMethodAlgorithm $ signedInfoSignatureMethod si: " ++ show (signatureMethodAlgorithm $ signedInfoSignatureMethod si))
+  hPutStrLn stderr ("signatureValue $ signatureSignatureValue s: " ++ show (signatureValue $ signatureSignatureValue s))
+  hPutStrLn stderr ("six: " ++ show (six))
   let verified :: Maybe Bool
       verified = verifyBytes pks (signatureMethodAlgorithm $ signedInfoSignatureMethod si) (signatureValue $ signatureSignatureValue s) six
       valid :: Bool
       valid = elem (Right xid) rl && all isRight rl
+  hPutStrLn stderr ("valid: " ++ show (valid))
+  hPutStrLn stderr ("verified: " ++ show (verified))
   return $ (valid &&) <$> verified
   where
   child n = HXT.runLA $ HXT.getChildren HXT.>>> isDSElem n HXT.>>> HXT.cleanupNamespaces HXT.collectPrefixUriPairs
